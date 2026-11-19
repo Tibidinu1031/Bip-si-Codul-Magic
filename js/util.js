@@ -276,10 +276,30 @@
         else append(box, o.body);
       }
       let closed = false;
+      // fereastra se micșorează singură ca să încapă întreagă pe ecran (fără derulare)
+      let fitRaf = 0;
+      const fit = () => {
+        fitRaf = 0;
+        if (closed) return;
+        box.style.zoom = '';
+        box.style.maxHeight = 'none';
+        const avail = window.innerHeight - 24;
+        const hh = box.offsetHeight;
+        if (hh > avail) {
+          const z = Math.max(0.5, avail / hh);
+          box.style.zoom = String(Math.floor(z * 1000) / 1000);
+          if (hh * z > avail) box.style.maxHeight = Math.floor(avail / z) + 'px';
+        }
+      };
+      const refit = () => { if (!fitRaf) fitRaf = setTimeout(fit, 16); };
+      const mo = typeof MutationObserver !== 'undefined' ? new MutationObserver(refit) : null;
       const handle = {
         el: box,
+        fit: refit,
         close: () => {
           if (closed) return; closed = true;
+          if (mo) mo.disconnect();
+          window.removeEventListener('resize', refit);
           back.remove();
           const i = Modal.stack.indexOf(handle); if (i >= 0) Modal.stack.splice(i, 1);
           if (o.onClose) o.onClose();
@@ -303,6 +323,10 @@
       if (handle.dismiss) back.addEventListener('pointerdown', e => { if (e.target === back) handle.close(); });
       document.getElementById('modal-root').appendChild(back);
       this.stack.push(handle);
+      fit();
+      if (mo) mo.observe(box, { childList: true, subtree: true, characterData: true });
+      window.addEventListener('resize', refit);
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(refit);
       setTimeout(() => {
         const f = box.querySelector('[autofocus]') || box.querySelector('.actions .btn:last-child');
         if (f) { try { f.focus({ preventScroll: true }); } catch (e) { f.focus(); } }
@@ -397,7 +421,20 @@
     ctx.restore();
   }
 
-  BIP.util = { h, append, clone, uid, clamp, sleep, num, esc, mulberry, hash2, roundRect, emoji, EMOJI_FONT, download, pickFile, bipSVG, bipImage, drawBotTop };
+  /* Micșorează un element (CSS zoom) ca să încapă în înălțimea dată */
+  function fitZoom(el, avail, min) {
+    if (!el) return 1;
+    el.style.zoom = '';
+    const hh = el.scrollHeight;
+    if (avail > 0 && hh > avail) {
+      const z = Math.max(min || 0.6, avail / hh);
+      el.style.zoom = String(Math.floor(z * 1000) / 1000);
+      return z;
+    }
+    return 1;
+  }
+
+  BIP.util = { h, append, fitZoom, clone, uid, clamp, sleep, num, esc, mulberry, hash2, roundRect, emoji, EMOJI_FONT, download, pickFile, bipSVG, bipImage, drawBotTop };
   BIP.Store = Store;
   BIP.Sound = Sound;
   BIP.Speech = Speech;

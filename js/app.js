@@ -99,6 +99,23 @@
     if (onClick) b.addEventListener('click', e => { Sound.play('click'); onClick(e, b); });
     return b;
   }
+  /* buton cu pictogramă + text (textul dispare pe ecrane mici) */
+  function ibtn(icon, label, onClick, cls, attrs) {
+    return btn([h('span', { class: 'ic' }, icon), h('span', { class: 'lbl' }, label)], onClick, cls, Object.assign({ title: label, 'aria-label': label }, attrs || {}));
+  }
+  /* rulează fn la redimensionare (fereastră + element), cu un singur cadru de întârziere */
+  function onResize(el, fn) {
+    let t = 0;
+    const run = () => { if (!t) t = setTimeout(() => { t = 0; fn(); }, 16); };
+    window.addEventListener('resize', run);
+    let ro = null;
+    if (el && typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(run); ro.observe(el); }
+    run();
+    // fontul se încarcă după prima afișare și schimbă dimensiunile textului
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(run);
+    setTimeout(run, 400);
+    return () => { window.removeEventListener('resize', run); if (ro) ro.disconnect(); clearTimeout(t); t = -1; };
+  }
   function soundBtn() {
     const b = h('button', { class: 'btn btn-icon', type: 'button', title: 'Pornește / oprește sunetul', 'aria-label': 'Sunet' });
     const upd = () => { b.textContent = Store.data.settings.muted ? '🔇' : '🔊'; };
@@ -149,14 +166,16 @@
   }
   function conceptModal(w, onClose) {
     const it = w.intro; if (!it) return;
-    const body = [h('div', { class: 'modal-bip', html: bipSVG({ mood: 'wow' }) }), h('div', { html: it.text })];
+    const ex = h('div', { class: 'cg-ex' });
     if (it.compare) {
-      body.push(h('div', { class: 'static-row' },
+      ex.appendChild(h('div', { class: 'static-row' },
         staticBox([['start']].concat(it.compare[0])), h('div', { class: 'vs-arrow' }, '➜'), staticBox([['start']].concat(it.compare[1]))));
     } else if (it.example) {
-      body.push(h('div', { class: 'static-row' }, staticBox(it.example)));
+      ex.appendChild(h('div', { class: 'static-row' }, staticBox(it.example)));
     }
-    if (it.caption) body.push(h('p', { class: 'center muted' }, it.caption));
+    if (it.caption) ex.appendChild(h('p', { class: 'center muted' }, it.caption));
+    const body = h('div', { class: 'concept-grid' },
+      h('div', null, h('div', { class: 'modal-bip', html: bipSVG({ mood: 'wow' }) }), h('div', { html: it.text })), ex);
     Modal.open({ title: it.title, body: body, cls: 'wide', buttons: [{ text: 'Am înțeles, hai să începem! 🚀', cls: 'btn-go' }], onClose: onClose });
   }
 
@@ -230,18 +249,26 @@
         : 'Salut! Eu sunt <b>Bip</b>, un robot care vrea să învețe să programeze. 🤖 Mă ajuți? Apasă pe <b>„Jucător nou”</b>!');
       bub.el.style.maxWidth = '560px';
       bub.el.style.width = '100%';
-      this.el = h('div', { class: 'screen' },
-        h('div', { class: 'home' },
-          h('div', { class: 'home-hero' },
-            h('div', { class: 'bip-big', html: bipSVG({ mood: 'happy', arms: 'up' }) }),
-            h('div', null,
-              h('h1', { class: 'logo-title', html: 'Bip și <span>Codul Magic</span>' }),
-              h('p', { class: 'logo-sub' }, 'Învață să programezi cu blocuri și construiește-ți propriul joc! 🧩🎮'))),
-          bub.el,
-          h('div', { class: 'who' }, d.order.length ? 'Cine se joacă azi?' : 'Hai să începem!'),
-          grid,
-          h('div', { class: 'home-foot' }, btn('👩‍🏫 Pentru profesori', () => teacherGate()), soundBtn())));
+      this.inner = h('div', { class: 'home-inner' },
+        h('div', { class: 'home-hero' },
+          h('div', { class: 'bip-big', html: bipSVG({ mood: 'happy', arms: 'up' }) }),
+          h('div', null,
+            h('h1', { class: 'logo-title', html: 'Bip și <span>Codul Magic</span>' }),
+            h('p', { class: 'logo-sub' }, 'Învață să programezi cu blocuri și construiește-ți propriul joc! 🧩🎮'))),
+        bub.el,
+        h('div', { class: 'who' }, d.order.length ? 'Cine se joacă azi?' : 'Hai să începem!'),
+        grid,
+        h('div', { class: 'home-foot' }, btn('👩‍🏫 Pentru profesori', () => teacherGate()), soundBtn()));
+      this.home = h('div', { class: 'home' }, this.inner);
+      this.el = h('div', { class: 'screen' }, this.home);
     }
+    mounted() {
+      this.off = onResize(this.home, () => {
+        const cs = getComputedStyle(this.home);
+        BIP.util.fitZoom(this.inner, this.home.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 4, 0.7);
+      });
+    }
+    destroy() { if (this.off) this.off(); }
   }
 
   function newProfileModal() {
@@ -383,7 +410,7 @@
           h('span', { class: 'chip', title: 'Stele' }, '⭐ ' + P.totalStars()),
           h('span', { class: 'chip', title: 'Insigne' }, '🏅 ' + (badges.length ? badges.map(b => b.icon).join(' ') : '0'))),
         h('div', { class: 'spacer' }),
-        btn('👥 Schimbă jucătorul', () => App.go('#/')),
+        ibtn('👥', 'Schimbă jucătorul', () => App.go('#/')),
         soundBtn());
       const bub = makeBubble();
       const done = P.totalDone();
@@ -396,25 +423,30 @@
       const curId = P.currentId();
       this.bub = bub;
       WORLDS.forEach((w, wi) => inner.appendChild(this.worldCard(w, wi, curId)));
-      this.el = h('div', { class: 'screen' }, bar, h('div', { class: 'map' }, inner));
+      this.inner = inner;
+      this.mapEl = h('div', { class: 'map' }, inner);
+      this.el = h('div', { class: 'screen' }, bar, this.mapEl);
     }
     worldCard(w, wi, curId) {
       const unlocked = P.worldUnlocked(wi);
       const dn = P.doneCount(w);
       const left = h('div', null,
-        h('div', { class: 'w-ico' }, w.icon),
-        h('div', { class: 'w-num' }, 'Lumea ' + w.num + ' · ' + dn + '/' + w.levels.length),
-        h('div', { class: 'w-title' }, w.title),
-        h('div', { class: 'w-concept' }, w.concept));
+        h('div', { class: 'w-head' },
+          h('div', { class: 'w-ico' }, w.icon),
+          h('div', null,
+            h('div', { class: 'w-num' }, 'Lumea ' + w.num + ' · ' + dn + '/' + w.levels.length),
+            h('div', { class: 'w-title' }, w.title),
+            h('div', { class: 'w-concept' }, w.concept))));
       if (P.worldDone(w)) left.appendChild(h('div', { class: 'w-badge' }, w.badge.icon + ' Insigna „' + w.badge.name + '”'));
       else if (!unlocked) left.appendChild(h('div', { class: 'w-lock' }, '🔒 Termină ' + P.need(wi) + ' niveluri din lumea ' + (wi) + ' ca s-o deschizi.'));
       const tokens = h('div', { class: 'tokens' });
+      tokens.appendChild(h('div', { class: 'w-mtitle' }, h('b', null, w.title), ' · ' + dn + '/' + w.levels.length + (unlocked ? '' : ' 🔒')));
       w.levels.forEach((l, li) => {
         const un = P.levelUnlocked(wi, li), d = P.isDone(l.id);
         let t;
         if (w.type === 'studio') {
           t = h('button', { class: 'token mission' + (d ? ' done' : '') + (!un ? ' locked' : '') + (l.id === curId ? ' cur' : ''), type: 'button', title: l.title },
-            d ? '✅' : un ? '🎯' : '🔒', h('span', null, (li + 1) + '. ' + l.title));
+            d ? '✅' : un ? '🎯' : '🔒', h('span', null, String(li + 1)), h('span', { class: 'lbl' }, l.title));
         } else {
           const st = P.stars(l.id);
           t = h('button', { class: 'token' + (d ? ' done' : '') + (!un ? ' locked' : '') + (l.id === curId ? ' cur' : ''), type: 'button', title: 'Nivelul ' + (li + 1) + ': ' + l.title, 'aria-label': 'Nivelul ' + (li + 1) + ': ' + l.title + (d ? ', ' + st + ' stele' : '') },
@@ -435,14 +467,14 @@
       });
       if (w.type === 'studio') {
         const fu = P.freeUnlocked();
-        const free = h('button', { class: 'token mission free' + (fu ? '' : ' locked'), type: 'button' }, fu ? '🎨' : '🔒', h('span', null, 'Creează liber'));
+        const free = h('button', { class: 'token mission free' + (fu ? '' : ' locked'), type: 'button', title: 'Creează liber' }, fu ? '🎨' : '🔒', h('span', { class: 'lbl' }, 'Creează liber'));
         free.addEventListener('click', () => {
           if (!fu) { Sound.play('fail'); this.bub.set('„Creează liber” se deschide după prima misiune din Atelier. 🛠️', 'think'); return; }
           App.go('#/liber');
         });
         tokens.appendChild(free);
         if (P.isDone('w5-5')) {
-          const dip = h('button', { class: 'token mission done', type: 'button' }, '🎓', h('span', null, 'Diploma mea'));
+          const dip = h('button', { class: 'token mission done', type: 'button', title: 'Diploma mea' }, '🎓', h('span', { class: 'lbl' }, 'Diploma mea'));
           dip.addEventListener('click', () => App.go('#/diploma'));
           tokens.appendChild(dip);
         }
@@ -450,12 +482,20 @@
       return h('section', { class: 'world' + (unlocked ? '' : ' locked'), style: { background: w.bg, color: w.ink }, 'data-world': w.id }, left, tokens);
     }
     mounted() {
+      // toată harta încape pe ecran (se micșorează puțin dacă e nevoie)
+      this.off = onResize(this.mapEl, () => {
+        const cs = getComputedStyle(this.mapEl);
+        BIP.util.fitZoom(this.inner, this.mapEl.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 4, 0.62);
+      });
       const cur = this.el.querySelector('.token.cur');
       if (cur) {
         const sec = cur.closest('.world');
-        if (sec && sec.offsetTop > 300) setTimeout(() => { try { sec.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { /* */ } }, 150);
+        setTimeout(() => {
+          if (sec && this.mapEl.scrollHeight > this.mapEl.clientHeight + 4) { try { sec.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { /* */ } }
+        }, 200);
       }
     }
+    destroy() { if (this.off) this.off(); }
   }
 
   /* =========================================================
@@ -485,12 +525,12 @@
       this.ctx = { condKinds: L.conds || MAZE_CTX.condKinds };
       const dots = h('div', { class: 'lvl-dots', 'aria-hidden': 'true' });
       w.levels.forEach((l, i) => dots.appendChild(h('span', { class: i === f.li ? 'cur' : (P.isDone(l.id) ? 'done' : '') })));
-      this.hintBtn = btn('💡 Indiciu', () => this.showHints(), 'btn-sun');
+      this.hintBtn = ibtn('💡', 'Indiciu', () => this.showHints(), 'btn-sun');
       const bar = h('div', { class: 'topbar' },
-        btn('🗺️ Harta', () => App.go('#/harta')),
-        h('div', null, h('div', { class: 't-sub' }, w.icon + ' Lumea ' + w.num + ' · ' + w.title), h('div', { class: 't-title' }, 'Nivelul ' + (f.li + 1) + ': ' + L.title)),
+        ibtn('🗺️', 'Harta', () => App.go('#/harta')),
+        h('div', { class: 't-wrap' }, h('div', { class: 't-sub' }, w.icon + ' Lumea ' + w.num + ' · ' + w.title), h('div', { class: 't-title' }, 'Nivelul ' + (f.li + 1) + ': ' + L.title)),
         dots, h('div', { class: 'spacer' }),
-        btn('📘 Ce învăț?', () => conceptModal(w)), this.hintBtn, soundBtn());
+        ibtn('📘', 'Ce învăț?', () => conceptModal(w)), this.hintBtn, soundBtn());
       // paleta
       this.palEl = h('div', { class: 'palette', 'aria-label': 'Blocuri' });
       this.trash = h('div', { class: 'trash-zone' }, h('div', { class: 'ic' }, '🗑️'), 'Lasă aici ca să ștergi');
@@ -499,16 +539,16 @@
       // spațiul de lucru
       this.wsEl = h('div', { class: 'ws' });
       this.tools = [
-        btn('↶ Anulează', () => { if (!this.running) this.editor.undo(); }, 'btn-sm', { title: 'Anulează ultima schimbare (Ctrl+Z)' }),
-        btn('🧹 Aranjează', () => { if (!this.running) this.editor.cleanUp(); }, 'btn-sm'),
-        btn('🗑️ Golește', () => { if (!this.running) confirmBox('Ștergi tot programul?', 'Toate blocurile vor dispărea (poți apăsa apoi „Anulează” dacă te răzgândești).', 'Da, golește', () => this.editor.reset(this.initial())); }, 'btn-sm')
+        ibtn('↶', 'Anulează', () => { if (!this.running) this.editor.undo(); }, 'btn-sm', { title: 'Anulează ultima schimbare (Ctrl+Z)' }),
+        ibtn('🧹', 'Aranjează', () => { if (!this.running) this.editor.cleanUp(); }, 'btn-sm'),
+        ibtn('🗑️', 'Golește', () => { if (!this.running) confirmBox('Ștergi tot programul?', 'Toate blocurile vor dispărea (poți apăsa apoi „Anulează” dacă te răzgândești).', 'Da, golește', () => this.editor.reset(this.initial())); }, 'btn-sm')
       ];
-      this.wsPanel = h('div', { class: 'panel ws-panel' }, h('div', { class: 'panel-head' }, '🛠️ Programul tău', h('div', { class: 'spacer' }), this.tools), this.wsEl);
+      this.wsPanel = h('div', { class: 'panel ws-panel' }, h('div', { class: 'panel-head' }, h('span', null, '🛠️ ', h('span', { class: 'lbl' }, 'Programul tău')), h('div', { class: 'spacer' }), this.tools), this.wsEl);
       // scena
       this.bubble = makeBubble();
       this.cv = h('canvas', { 'aria-label': 'Lumea lui Bip' });
       this.tag = h('div', { class: 'stage-tag' });
-      const box = h('div', { class: 'stage-box' }, this.cv, this.tag);
+      const box = this.stageBox = h('div', { class: 'stage-box' }, this.cv, this.tag);
       this.runBtn = btn('▶ Pornește', () => this.run(), 'btn-go btn-big run');
       const resetBtn = btn('↺', () => this.resetWorld(), 'btn-big', { title: 'Pune-l pe Bip înapoi la start', 'aria-label': 'De la capăt' });
       const speeds = [['🐢', 1.8, 'Încet'], ['🐇', 1, 'Normal'], ['🚀', 0.4, 'Repede']];
@@ -523,7 +563,7 @@
         sp.appendChild(b);
       });
       const controls = h('div', { class: 'controls' }, this.runBtn, resetBtn, sp);
-      if (L.free) controls.appendChild(btn('📥 Salvează desenul', () => this.world.toPNG(b => { if (b) download('desenul-meu.png', b); }), 'btn-sm'));
+      if (L.free) controls.appendChild(ibtn('📥', 'Salvează desenul', () => this.world.toPNG(b => { if (b) download('desenul-meu.png', b); }), 'btn-sm'));
       this.goalEl = h('div', { class: 'goal-line' });
       this.stagePanel = h('div', { class: 'panel stage-panel' }, this.bubble.el, box, controls, this.goalEl);
       this.el = h('div', { class: 'screen' }, bar, h('div', { class: 'lvl-main' }, this.palPanel, this.wsPanel, this.stagePanel));
@@ -548,6 +588,11 @@
       this.editor.load(this.loadCode());
       this.updateTag();
       this.bubble.set(L.text);
+      // scena nu e mai înaltă decât lată (restul spațiului rămâne liber, fără derulare)
+      this.offResize = onResize(this.stagePanel, () => {
+        const w = this.stageBox.clientWidth;
+        this.stageBox.style.maxHeight = (w > 0 ? Math.round(w * (L.type === 'art' ? 1 : 0.95)) : 9999) + 'px';
+      });
       const gems = (L.map || (L.maps && L.maps[0]) || []).join('').indexOf('G') >= 0;
       const g = [];
       if (L.type === 'maze') g.push('🎯 Țintă: bateria 🔋' + (gems ? ' + toate diamantele 💎' : ''));
@@ -570,6 +615,7 @@
     }
     destroy() {
       this.alive = false;
+      if (this.offResize) this.offResize();
       if (this.runner) this.runner.stop();
       this.running = false;
       if (this.editor) { this.saveCode(); this.editor.destroy(); }
@@ -761,6 +807,8 @@
       const more = btn('💡 Încă un indiciu', () => showNext(), 'btn-sun');
       const solBtn = btn(L.free ? '👀 Arată-mi o idee' : '👀 Arată-mi o soluție', () => {
         solBtn.style.display = 'none';
+        list.style.display = 'none';
+        more.style.display = 'none';
         solBox.appendChild(h('p', { html: L.free ? 'O idee de desen (încearcă-l!):' : 'Iată o soluție. <b>Construiește-o tu</b> în spațiul de lucru! 💪' }));
         solBox.appendChild(staticBox([['start']].concat(L.sol), this.ctx));
       });
@@ -853,16 +901,20 @@
     }
     buildUI() {
       const m = this.mission;
-      const title = h('div', null, h('div', { class: 't-sub' }, '🎮 Lumea 5 · Atelierul de jocuri'),
+      const title = h('div', { class: 't-wrap' }, h('div', { class: 't-sub' }, '🎮 Lumea 5 · Atelierul de jocuri'),
         h('div', { class: 't-title' }, this.free ? '🎨 Creează liber' : 'Misiunea ' + this.mNum + ': ' + m.title));
       let dots = null;
       if (!this.free) {
         dots = h('div', { class: 'lvl-dots', 'aria-hidden': 'true' });
         BIP.MISSIONS.forEach((x, i) => dots.appendChild(h('span', { class: i === m.index ? 'cur' : (P.isDone(x.id) ? 'done' : '') })));
       }
-      this.helpBtn = btn('💡 Ajutor', () => this.showHelp(), 'btn-sun');
-      const bar = h('div', { class: 'topbar' }, btn('🗺️ Harta', () => App.go('#/harta')), title, dots, h('div', { class: 'spacer' }),
-        btn('📘 Ce învăț?', () => this.showIntro()), this.helpBtn, soundBtn());
+      this.helpBtn = ibtn('💡', 'Ajutor', () => this.showHelp(), 'btn-sun');
+      // pe telefon: două file, „Program” și „Scena”
+      this.tabProg = btn('🧩 Cod', () => this.showTab(false), '', { 'aria-pressed': 'true', title: 'Blocurile și programul' });
+      this.tabScene = btn('🎮 Scena', () => this.showTab(true), '', { 'aria-pressed': 'false' });
+      const mtabs = h('div', { class: 'mtabs', role: 'group', 'aria-label': 'Ce vezi pe ecran' }, this.tabProg, this.tabScene);
+      const bar = h('div', { class: 'topbar' }, ibtn('🗺️', 'Harta', () => App.go('#/harta')), title, dots, h('div', { class: 'spacer' }), mtabs,
+        ibtn('📘', 'Ce învăț?', () => this.showIntro(), 'hide-phone'), this.helpBtn, soundBtn());
       // paleta cu categorii
       this.palEl = h('div', { class: 'palette', 'aria-label': 'Blocuri' });
       this.trash = h('div', { class: 'trash-zone' }, h('div', { class: 'ic' }, '🗑️'), 'Lasă aici ca să ștergi');
@@ -877,29 +929,66 @@
       // spațiul de lucru
       this.wsEl = h('div', { class: 'ws' });
       this.whoEl = h('div', { class: 'who-edit' });
+      this.miniSprites = h('div', { class: 'mini-sprites', role: 'group', 'aria-label': 'Alege personajul' });
       this.stepBar = this.free ? null : h('div', { class: 'step-bar', role: 'status', 'aria-live': 'polite' });
-      this.wsPanel = h('div', { class: 'panel ws-panel' }, h('div', { class: 'panel-head' }, this.whoEl, h('div', { class: 'spacer' }),
-        btn('↶ Anulează', () => this.editor.undo(), 'btn-sm', { title: 'Anulează (Ctrl+Z)' }),
-        btn('🧹 Aranjează', () => this.editor.cleanUp(), 'btn-sm')), this.stepBar, this.wsEl);
+      this.wsPanel = h('div', { class: 'panel ws-panel' }, h('div', { class: 'panel-head' }, this.whoEl, this.miniSprites, h('div', { class: 'spacer' }),
+        ibtn('↶', 'Anulează', () => this.editor.undo(), 'btn-sm', { title: 'Anulează (Ctrl+Z)' }),
+        ibtn('🧹', 'Aranjează', () => this.editor.cleanUp(), 'btn-sm')), this.stepBar, this.wsEl);
       // scena
       this.flagBtn = btn('▶ Pornește', () => { this.stage.greenFlag(); this.flagBtn.blur(); try { this.cv.focus({ preventScroll: true }); } catch (e) { /* */ } }, 'btn-go');
+      this.flagBtn2 = btn('▶', () => { this.showTab(true); this.stage.greenFlag(); }, 'btn-go', { title: 'Pornește jocul', 'aria-label': 'Pornește jocul' });
+      mtabs.appendChild(this.flagBtn2);
       this.stopBtn = btn('⏹ Oprește', () => { this.stage.stopAll(true); this.stopBtn.blur(); }, 'btn-stop');
       this.coordsEl = h('span', { class: 'coords' }, '');
       this.cv = h('canvas', { 'aria-label': 'Scena jocului', tabindex: '0' });
       const vk = h('div', { class: 'vkeys' }, this.vkey('⬅', 'left'), this.vkey('⬆', 'up'), this.vkey('⬇', 'down'), this.vkey('➡', 'right'), this.vkey('spațiu', 'space'));
-      const stageCard = h('div', { class: 'panel stage-card' },
+      this.stageBox = h('div', { class: 'stage-box wide' }, this.cv);
+      const stageCard = this.stageCard = h('div', { class: 'panel stage-card' },
         h('div', { class: 'stage-top' }, this.flagBtn, this.stopBtn, this.coordsEl),
-        h('div', { class: 'stage-box wide' }, this.cv), vk);
+        this.stageBox, vk);
       // personaje
       this.spritesEl = h('div', { class: 'sprites' });
-      const spritesCard = h('div', { class: 'panel' }, h('div', { class: 'panel-head' }, '🎭 Personaje — alege pe cine programezi'), this.spritesEl);
+      const spritesCard = this.spritesCard = h('div', { class: 'panel sprites-card' }, this.spritesEl);
       if (this.free) spritesCard.appendChild(this.freeTools());
-      const right = h('div', { class: 'right-col' }, stageCard, spritesCard);
+      const right = this.rightCol = h('div', { class: 'right-col' }, stageCard, spritesCard);
       if (!this.free) {
         this.missionEl = h('div', { class: 'panel mission-card' });
         right.appendChild(this.missionEl);
       }
-      this.el = h('div', { class: 'screen' }, bar, h('div', { class: 'studio-main' }, this.palPanel, this.wsPanel, right));
+      this.mainEl = h('div', { class: 'studio-main tabbed' }, this.palPanel, this.wsPanel, right);
+      this.el = h('div', { class: 'screen studio-screen' }, bar, this.mainEl);
+    }
+    showTab(scene) {
+      if (!this.mainEl) return;
+      this.mainEl.classList.toggle('show-scene', !!scene);
+      this.tabProg.setAttribute('aria-pressed', String(!scene));
+      this.tabScene.setAttribute('aria-pressed', String(!!scene));
+      this.fitStage();
+    }
+    isPhone() { return window.matchMedia('(max-width: 600px) and (orientation: portrait)').matches; }
+    /* scena (4:3) ia cât spațiu poate, fără ca restul să mai aibă nevoie de derulare */
+    fitStage() {
+      const box = this.stageBox, card = this.stageCard, col = this.rightCol;
+      if (!box || !col || !col.offsetParent) return;
+      const narrow = window.matchMedia('(max-width: 900px) and (orientation: portrait)').matches;
+      const chrome = card.offsetHeight - box.offsetHeight;
+      let maxW, maxH;
+      if (this.isPhone()) {
+        maxW = col.clientWidth - 22;
+        maxH = col.clientHeight - chrome - this.spritesCard.offsetHeight - (this.missionEl ? this.missionEl.offsetHeight + 10 : 0) - 14;
+      } else if (narrow) {
+        maxW = Math.min(col.clientWidth * 0.64, col.clientWidth - 180);
+        maxH = window.innerHeight * 0.34;
+      } else {
+        maxW = col.clientWidth - 22;
+        maxH = col.clientHeight - chrome - this.spritesCard.offsetHeight - (this.missionEl ? this.missionEl.offsetHeight + 10 : 0) - 12;
+      }
+      const w = Math.floor(Math.max(150, Math.min(maxW, maxH * 4 / 3)));
+      const hh = Math.floor(w * 3 / 4);
+      if (Math.abs(box.offsetWidth - w) > 1 || Math.abs(box.offsetHeight - hh) > 1) {
+        box.style.width = w + 'px';
+        box.style.height = hh + 'px';
+      }
     }
     vkey(label, k) {
       const b = h('button', { class: 'btn', type: 'button', 'aria-label': 'Tasta ' + label }, label);
@@ -928,12 +1017,21 @@
       bd.addEventListener('change', () => { this.project.backdrop = bd.value; this.save(); });
       this.bdSel = bd;
       return h('div', { class: 'free-tools' }, bd,
-        btn('✏️ Nume', () => this.renameSprite(), 'btn-sm'),
-        btn('👁 Arată / ascunde', () => { const s = this.curSprite(); s.visible = !s.visible; this.save(); this.renderSprites(); }, 'btn-sm'),
-        btn('🗑️ Șterge personajul', () => this.deleteSprite(), 'btn-sm'),
-        btn('💾 Salvează în fișier', () => download('proiectul-meu.bip.json', JSON.stringify({ app: 'bip-cod-magic', v: 1, project: this.project })), 'btn-sm'),
-        btn('📂 Deschide', () => this.openFile(), 'btn-sm'),
-        btn('🆕 Proiect nou', () => confirmBox('Începi un proiect nou?', 'Proiectul de acum va fi șters (salvează-l întâi în fișier, dacă vrei să-l păstrezi).', 'Da, proiect nou', () => this.replaceProject(newFreeProject())), 'btn-sm'));
+        ibtn('✏️', 'Nume', () => this.renameSprite(), 'btn-sm'),
+        ibtn('👁', 'Ascunde', () => { const s = this.curSprite(); s.visible = !s.visible; this.save(); this.renderSprites(); }, 'btn-sm'),
+        ibtn('🗑️', 'Șterge', () => this.deleteSprite(), 'btn-sm', { title: 'Șterge personajul' }),
+        ibtn('📁', 'Fișier', () => this.fileMenu(), 'btn-sm'));
+    }
+    fileMenu() {
+      Modal.open({
+        title: '📁 Proiectul meu',
+        body: h('p', null, 'Salvează proiectul într-un fișier ca să-l iei acasă sau pe alt calculator, ori deschide un proiect salvat.'),
+        buttons: [
+          { text: '🆕 Proiect nou', onClick: () => { setTimeout(() => confirmBox('Începi un proiect nou?', 'Proiectul de acum va fi șters (salvează-l întâi în fișier, dacă vrei să-l păstrezi).', 'Da, proiect nou', () => this.replaceProject(newFreeProject())), 0); } },
+          { text: '📂 Deschide', onClick: () => this.openFile() },
+          { text: '💾 Salvează în fișier', cls: 'btn-primary', onClick: () => download('proiectul-meu.bip.json', JSON.stringify({ app: 'bip-cod-magic', v: 1, project: this.project })) }
+        ]
+      });
     }
     mounted() {
       this.ctx = {
@@ -956,6 +1054,7 @@
         onChange: () => this.onEdit()
       });
       this.selectSprite(this.sel, true);
+      this.offResize = onResize(this.mainEl, () => this.fitStage());
       this.coordT = setInterval(() => this.updateCoords(), 200);
       this._kd = e => this.onKey(e, true);
       this._ku = e => this.onKey(e, false);
@@ -971,6 +1070,7 @@
     }
     destroy() {
       this.alive = false;
+      if (this.offResize) this.offResize();
       clearInterval(this.coordT);
       this.vkeyEnds.forEach(f => f());
       window.removeEventListener('keydown', this._kd);
@@ -1007,7 +1107,7 @@
       const ic = BIP.spriteIcon(s);
       this.whoEl.innerHTML = '';
       this.whoEl.appendChild(h('span', { class: 'em', html: ic.svg || null }, ic.svg ? null : ic.text));
-      this.whoEl.appendChild(h('span', null, 'Programezi: ' + s.name));
+      this.whoEl.appendChild(h('span', { class: 'wtxt' }, 'Programezi: ' + s.name));
       if (!initial) Sound.play('click');
       this.renderSprites();
       this.updateCoords();
@@ -1016,6 +1116,7 @@
     renderSprites() {
       const el = this.spritesEl;
       el.innerHTML = '';
+      el.appendChild(h('div', { class: 'sprites-lbl' }, '🎭 Personaje:', h('small', null, 'alege pe cine programezi')));
       this.project.sprites.forEach(s => {
         const ic = BIP.spriteIcon(s);
         const card = h('button', {
@@ -1030,6 +1131,18 @@
         add.addEventListener('click', () => { Sound.play('click'); this.addSpriteModal(); });
         el.appendChild(add);
       }
+      // alegerea rapidă a personajului (pe telefon, deasupra programului)
+      const mini = this.miniSprites;
+      if (mini) {
+        mini.innerHTML = '';
+        this.project.sprites.forEach(s => {
+          const ic = BIP.spriteIcon(s);
+          const b = h('button', { type: 'button', class: (s.id === this.sel ? 'sel' : '') + (this.attnSprite === s.id && s.id !== this.sel ? ' attn' : ''), title: s.name, 'aria-label': s.name, html: ic.svg || null }, ic.svg ? null : ic.text);
+          b.addEventListener('click', () => this.selectSprite(s.id));
+          mini.appendChild(b);
+        });
+      }
+      setTimeout(() => this.fitStage(), 0);
     }
     onEdit() {
       this.save();
@@ -1082,24 +1195,29 @@
       const m = this.mission, card = this.missionEl;
       if (!card) return;
       card.innerHTML = '';
-      card.appendChild(h('h3', null, '🎯 ' + m.title));
-      card.appendChild(h('div', { class: 'm-concept' }, '📘 ' + m.concept));
-      const ol = h('ol', { class: 'steps' });
-      m.steps.forEach((st, i) => {
-        const cls = this.stepStates[i] ? 'done' : (i === this.curStep ? 'cur' : 'later');
-        let html = st.text;
-        if (i === this.curStep && st.sprite && st.sprite !== this.sel) html += ' <i>(pentru ' + esc(this.spriteName(st.sprite)) + ' — alege-l de sub scenă)</i>';
-        ol.appendChild(h('li', { class: cls, html: html }));
-      });
-      card.appendChild(ol);
+      const dots = h('div', { class: 'm-dots', 'aria-label': 'Pașii misiunii' });
+      m.steps.forEach((st, i) => dots.appendChild(h('span', { class: this.stepStates[i] ? 'done' : (i === this.curStep ? 'cur' : ''), title: 'Pasul ' + (i + 1) }, this.stepStates[i] ? '✓' : String(i + 1))));
+      card.appendChild(h('div', { class: 'm-row' }, h('h3', null, '🎯 ' + m.title), dots));
       const cur = m.steps[this.curStep];
+      const acts = h('div', { class: 'step-actions' });
+      acts.appendChild(h('div', { class: 'm-concept' }, '📘 ' + m.concept));
+      acts.appendChild(btn('📋 Pașii', () => this.showSteps(), 'btn-sm', { title: 'Toți pașii misiunii' }));
+      if (!cur) {
+        const nx = BIP.MISSIONS[m.index + 1];
+        if (nx) acts.appendChild(btn('Misiunea următoare ➜', () => App.go('#/atelier/' + nx.id), 'btn-go btn-sm'));
+        else {
+          acts.appendChild(btn('🎓 Diploma', () => App.go('#/diploma'), 'btn-go btn-sm'));
+          acts.appendChild(btn('🎨 Creează liber', () => App.go('#/liber'), 'btn-sm'));
+        }
+      }
+      card.appendChild(acts);
       if (this.stepBar) {
         const sb = this.stepBar;
         sb.innerHTML = '';
         sb.classList.toggle('done', !cur);
         if (cur) {
           let txt = '<b>🎯 Pasul ' + (this.curStep + 1) + ' din ' + m.steps.length + ':</b> ' + cur.text;
-          if (cur.sprite && cur.sprite !== this.sel) txt += ' <i>(alege întâi personajul ' + esc(this.spriteName(cur.sprite)) + ' de sub scenă)</i>';
+          if (cur.sprite && cur.sprite !== this.sel) txt += ' <i>(alege întâi personajul ' + esc(this.spriteName(cur.sprite)) + ')</i>';
           sb.appendChild(h('div', { class: 'st-txt', html: txt }));
           if (cur.snippet) {
             sb.appendChild(btn('💡', () => this.showHelp(), 'btn-sun btn-sm', { title: 'Arată-mi blocurile', 'aria-label': 'Arată-mi blocurile' }));
@@ -1111,33 +1229,36 @@
           sb.appendChild(nx2 ? btn('Misiunea următoare ➜', () => App.go('#/atelier/' + nx2.id), 'btn-go btn-sm') : btn('🎓 Diploma', () => App.go('#/diploma'), 'btn-go btn-sm'));
         }
       }
-      if (cur) {
-        if (cur.tip) card.appendChild(h('p', { class: 'muted', style: { fontSize: '13px', margin: '8px 0 0' }, html: '💬 ' + cur.tip }));
-        if (cur.snippet) {
-          card.appendChild(h('div', { class: 'step-actions' },
-            btn('💡 Arată-mi blocurile', () => this.showHelp(), 'btn-sun btn-sm'),
-            btn('🧩 Pune-le pe masă', () => this.placeSnippet(cur), 'btn-sm')));
-        }
-      } else {
-        card.appendChild(h('p', { html: '✅ <b>Misiune îndeplinită!</b> Bravo!' }));
-        const nx = BIP.MISSIONS[m.index + 1];
-        const acts = h('div', { class: 'step-actions' });
-        if (nx) acts.appendChild(btn('Misiunea următoare ➜', () => App.go('#/atelier/' + nx.id), 'btn-go btn-sm'));
-        else {
-          acts.appendChild(btn('🎓 Diploma mea', () => App.go('#/diploma'), 'btn-go btn-sm'));
-          acts.appendChild(btn('🎨 Creează liber', () => App.go('#/liber'), 'btn-sm'));
-        }
-        card.appendChild(acts);
-      }
+      if (this.fitStage) setTimeout(() => this.fitStage(), 0);
+    }
+    /* toți pașii misiunii, într-o fereastră */
+    showSteps() {
+      const m = this.mission;
+      const ol = h('ol', { class: 'steps' });
+      m.steps.forEach((st, i) => {
+        const cls = this.stepStates[i] ? 'done' : (i === this.curStep ? 'cur' : 'later');
+        let html = st.text;
+        if (i === this.curStep && st.sprite && st.sprite !== this.sel) html += ' <i>(pentru ' + esc(this.spriteName(st.sprite)) + ')</i>';
+        ol.appendChild(h('li', { class: cls, html: html }));
+      });
+      const body = [h('p', { class: 'muted', html: '🎯 <b>Scopul:</b> ' + m.goal }), ol];
+      const cur = m.steps[this.curStep];
+      if (cur && cur.tip) body.push(h('p', { class: 'muted', html: '💬 ' + cur.tip }));
+      const buttons = [];
       if (m.index > 0) {
-        const rescue = h('button', { class: 'btn btn-ghost btn-sm', type: 'button', style: { marginTop: '6px', color: 'var(--muted)' } }, '🧰 Te-ai încurcat? Încarcă proiectul de rezervă');
-        rescue.addEventListener('click', () => confirmBox('Încarci proiectul de rezervă?', 'Proiectul tău va fi înlocuit cu o variantă gata făcută a misiunilor de până acum. Poți continua apoi cu misiunea aceasta.', 'Da, încarcă', () => {
-          const p = BIP.mission.projectAfter(m.index);
-          if (m.index >= 2) BIP.mission.ensureStar(p);
-          this.replaceProject(p);
-        }, 'btn-primary'));
-        card.appendChild(rescue);
+        buttons.push({
+          text: '🧰 Proiectul de rezervă', onClick: () => {
+            setTimeout(() => confirmBox('Încarci proiectul de rezervă?', 'Proiectul tău va fi înlocuit cu o variantă gata făcută a misiunilor de până acum. Poți continua apoi cu misiunea aceasta.', 'Da, încarcă', () => {
+              const p = BIP.mission.projectAfter(m.index);
+              if (m.index >= 2) BIP.mission.ensureStar(p);
+              this.replaceProject(p);
+            }, 'btn-primary'), 0);
+          }
+        });
       }
+      if (cur && cur.snippet) buttons.push({ text: '💡 Arată-mi blocurile', onClick: () => { setTimeout(() => this.showHelp(), 0); } });
+      buttons.push({ text: 'Am înțeles', cls: 'btn-primary' });
+      Modal.open({ title: '📋 Misiunea ' + this.mNum + ': ' + m.title, body: body, buttons: buttons, cls: 'wide' });
     }
     missionComplete(delay) {
       const m = this.mission;
@@ -1176,6 +1297,7 @@
       }, delay || 700);
     }
     placeSnippet(st) {
+      this.showTab(false);
       if (st.sprite && st.sprite !== this.sel) this.selectSprite(st.sprite);
       this.editor.addScript(build(st.place || st.snippet), 40);
       Sound.play('snap');
@@ -1314,7 +1436,15 @@
               h('div', { class: 'dip-sign' }, h('div', null, 'Data: ' + date), h('div', null, 'Profesor'), h('div', null, 'Bip 🤖')))),
           h('div', { class: 'dip-actions no-print' }, btn('🖨️ Tipărește diploma', () => window.print(), 'btn-primary btn-big'))));
     }
-    mounted() { if (P.isDone('w5-5')) setTimeout(() => Confetti.burst(90), 300); }
+    mounted() {
+      const scr = this.el.querySelector('.dip-screen'), dip = this.el.querySelector('.diploma'), acts = this.el.querySelector('.dip-actions');
+      this.off = onResize(scr, () => {
+        const cs = getComputedStyle(scr);
+        BIP.util.fitZoom(dip, scr.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - (acts.offsetParent ? acts.offsetHeight + 14 : 4), 0.3);
+      });
+      if (P.isDone('w5-5')) setTimeout(() => Confetti.burst(90), 300);
+    }
+    destroy() { if (this.off) this.off(); }
   }
 
   BIP.App = App;
